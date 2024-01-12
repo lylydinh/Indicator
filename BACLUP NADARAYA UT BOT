@@ -1,0 +1,221 @@
+ 
+//@version=5
+indicator("Nadaraya-THUYBUI", "Nadaraya-THUYBUI", overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back=500)
+//------------------------------------------------------------------------------
+//Settings
+//-----------------------------------------------------------------------------{
+h = input.float(8.,'Bandwidth(Nhập 8)', minval = 0)
+mult = input.float(3.,'Mult(Nhập 3)', minval = 0)
+src = input(close, 'Source')
+
+repaint = input(true, 'Repainting Smoothing', tooltip = 'Repainting is an effect where the indicators historical output is subject to change over time. Disabling repainting will cause the indicator to output the endpoints of the calculations')
+
+//Style
+upCss = input.color(color.teal, 'Colors', inline = 'inline1', group = 'Style')
+dnCss = input.color(color.red, '', inline = 'inline1', group = 'Style')
+
+//-----------------------------------------------------------------------------}
+//Functions
+//-----------------------------------------------------------------------------{
+//Gaussian window
+gauss(x, h) => math.exp(-(math.pow(x, 2)/(h * h * 2)))
+
+//-----------------------------------------------------------------------------}
+//Append lines
+//-----------------------------------------------------------------------------{
+n = bar_index
+
+var ln = array.new_line(0) 
+
+if barstate.isfirst and repaint
+    for i = 0 to 499
+        array.push(ln,line.new(na,na,na,na))
+
+//-----------------------------------------------------------------------------}
+//End point method
+//-----------------------------------------------------------------------------{
+var coefs = array.new_float(0)
+var den = 0.
+
+if barstate.isfirst and not repaint
+    for i = 0 to 499
+        w = gauss(i, h)
+        coefs.push(w)
+
+    den := coefs.sum()
+
+out = 0.
+if not repaint
+    for i = 0 to 499
+        out += src[i] * coefs.get(i)
+out /= den
+mae = ta.sma(math.abs(src - out), 499) * mult
+
+upper = out + mae
+lower = out - mae
+ 
+//-----------------------------------------------------------------------------}
+//Compute and display NWE
+//-----------------------------------------------------------------------------{
+float y2 = na
+float y1 = na
+
+nwe = array.new<float>(0)
+if barstate.islast and repaint
+    sae = 0.
+    //Compute and set NWE point 
+    for i = 0 to math.min(499,n - 1)
+        sum = 0.
+        sumw = 0.
+        //Compute weighted mean 
+        for j = 0 to math.min(499,n - 1)
+            w = gauss(i - j, h)
+            sum += src[j] * w
+            sumw += w
+
+        y2 := sum / sumw
+        sae += math.abs(src[i] - y2)
+        nwe.push(y2)
+    
+    sae := sae / math.min(499,n - 1) * mult
+    for i = 0 to math.min(499,n - 1)
+        if i%2
+            line.new(n-i+1, y1 + sae, n-i, nwe.get(i) + sae, color = upCss)
+            line.new(n-i+1, y1 - sae, n-i, nwe.get(i) - sae, color = dnCss)
+        
+        if src[i] > nwe.get(i) + sae and src[i+1] < nwe.get(i) + sae
+            label.new(n-i, src[i], '▼', color = color(na), style = label.style_label_down, textcolor = dnCss, textalign = text.align_center)
+        if src[i] < nwe.get(i) - sae and src[i+1] > nwe.get(i) - sae
+            label.new(n-i, src[i], '▲', color = color(na), style = label.style_label_up, textcolor = upCss, textalign = text.align_center)
+        
+        y1 := nwe.get(i)
+
+//-----------------------------------------------------------------------------}
+//Dashboard
+//-----------------------------------------------------------------------------{
+var tb = table.new(position.top_right, 1, 1
+  , bgcolor = #1e222d
+  , border_color = #373a46
+  , border_width = 1
+  , frame_color = #373a46
+  , frame_width = 1)
+
+if repaint
+    tb.cell(0, 0, 'Repainting Mode Enabled', text_color = color.white, text_size = size.small)
+
+//-----------------------------------------------------------------------------}
+//Plot
+//-----------------------------------------------------------------------------}
+plot(repaint ? na : out + mae, 'Upper', upCss)
+plot(repaint ? na : out - mae, 'Lower', dnCss)
+
+//Crossing Arrows
+plotshape(ta.crossunder(close, out - mae) ? low : na, "Crossunder", shape.labelup, location.absolute, color(na), 0 , text = '▲', textcolor = upCss, size = size.tiny)
+plotshape(ta.crossover(close, out + mae) ? high : na, "Crossover", shape.labeldown, location.absolute, color(na), 0 , text = '▼', textcolor = dnCss, size = size.tiny)
+
+//-----------------------------------------------------------------------------}
+
+
+// UT not
+
+
+// Inputs
+a = input(1,     title = "Key Vaule. 'Trên 2 dưới 1'")
+c = input(10,    title = "ATR Period")
+//h = input(false, title = "Chỉ báo từ nến Heikin Ashi")
+
+xATR  = ta.atr(c)
+nLoss = a * xATR
+
+var float srcUTBOT = close
+var float haOpen = na
+var float haHigh = na
+var float haLow = na
+
+if (bar_index > 0)
+    haOpen := (haOpen[1] + srcUTBOT[1]) / 2
+    srcUTBOT := (open + high + low + close) / 4
+    haHigh := math.max(high, math.max(haOpen, srcUTBOT))
+    haLow := math.min(low, math.min(haOpen, srcUTBOT))
+ 
+
+var float xATRTrailingStop = 0.0
+
+xATRTrailingStop := if (srcUTBOT > nz(xATRTrailingStop[1], 0) and srcUTBOT[1] > nz(xATRTrailingStop[1], 0))
+    math.max(nz(xATRTrailingStop[1]), srcUTBOT - nLoss)
+else if (srcUTBOT < nz(xATRTrailingStop[1], 0) and srcUTBOT[1] < nz(xATRTrailingStop[1], 0))
+    math.min(nz(xATRTrailingStop[1]), srcUTBOT + nLoss)
+else if (srcUTBOT > nz(xATRTrailingStop[1], 0))
+    srcUTBOT - nLoss
+else
+    srcUTBOT + nLoss
+
+
+var int pos = 0
+
+pos := if (srcUTBOT[1] < nz(xATRTrailingStop[1], 0) and srcUTBOT > nz(xATRTrailingStop[1], 0))
+    1
+else if (srcUTBOT[1] > nz(xATRTrailingStop[1], 0) and srcUTBOT < nz(xATRTrailingStop[1], 0))
+    -1
+else
+    nz(pos[1], 0)
+
+
+var color xcolor = pos == -1 ? color.red : pos == 1 ? color.green : color.blue
+
+ema = ta.ema(srcUTBOT, 1)
+above = ta.crossover(ema, xATRTrailingStop)
+below = ta.crossover(xATRTrailingStop, ema)
+
+buy = srcUTBOT > xATRTrailingStop and above
+sell = srcUTBOT < xATRTrailingStop and below
+
+barbuy = srcUTBOT > xATRTrailingStop
+barsell = srcUTBOT < xATRTrailingStop
+
+plotshape(buy,  title = "Mua",  text = 'Mua',  style = shape.labelup,   location = location.belowbar, color= color.green, textcolor = color.white, transp = 0, size = size.tiny)
+plotshape(sell, title = "Bán", text = 'Bán', style = shape.labeldown, location = location.abovebar, color= color.red,   textcolor = color.white, transp = 0, size = size.tiny)
+
+barcolor(barbuy  ? color.green : na)
+barcolor(barsell ? color.red   : na)
+
+alertcondition(buy,  "UT Long",  "UT Long")
+alertcondition(sell, "UT Short", "UT Short")
+plot(srcUTBOT, color = color.blue, title = "Heikin-Ashi Đóng cửa")
+//plot(haOpen, color = color.red, title = "Heikin-Ashi Mở cửa")
+//plot(haHigh, color = color.green, title = "Heikin-Ashi Cao")
+//plot(haLow, color = color.maroon, title = "Heikin-Ashi Thấp")
+plot(srcUTBOT) 
+
+
+//EMA SCAPPER
+ema20 = ta.ema(close, 20)
+plot(ta.valuewhen(ta.cross(ema20, close), ema20, 0), color=color.new(color.green, 0), linewidth=1)
+plot(ema20, title='EMA20', color=color.new(color.red, 0), linewidth=1)
+
+emaLength1 = input.int(21, minval=1, title='EMA 1')
+emaLength2 = input.int(22, minval=1, title='EMA 2')
+emaLength3 = input.int(24, minval=1, title='EMA 3')
+emaLength4 = input.int(26, minval=1, title='EMA 4')
+emaLength5 = input.int(28, minval=1, title='EMA 5')
+emaLength6 = input.int(30, minval=1, title='EMA 6')
+ema1 = ta.ema(close, emaLength1)
+ema2 = ta.ema(close, emaLength2)
+ema3 = ta.ema(close, emaLength3)
+ema4 = ta.ema(close, emaLength4)
+ema5 = ta.ema(close, emaLength5)
+ema6 = ta.ema(close, emaLength6)
+plot(ema1, title='EMA 1', color=color.new(color.blue, 0), linewidth=1)
+plot(ema2, title='EMA 2', color=color.new(color.blue, 0), linewidth=1)
+plot(ema3, title='EMA 3', color=color.new(color.blue, 0), linewidth=1)
+plot(ema4, title='EMA 4', color=color.new(color.blue, 0), linewidth=1)
+plot(ema5, title='EMA 5', color=color.new(color.blue, 0), linewidth=1)
+plot(ema6, title='EMA 6', color=color.new(color.blue, 0), linewidth=1)
+
+bearish = ta.crossover(close, ema20) == 1 and close[1] > close
+bullish = ta.crossover(close, ema20) == 1 and close[1] < close
+plotshape(bearish, color=color.new(color.red, 0), style=shape.arrowdown, text='Mua', location=location.abovebar)
+plotshape(bullish, color=color.new(color.green, 0), style=shape.arrowup, text='Bán', location=location.belowbar)
+
+alertcondition(bullish, 'EMA Scalper - Buy/Sell', 'Mua')
+alertcondition(bearish, 'EMA Scalper - Buy/Sell', 'Bán')
